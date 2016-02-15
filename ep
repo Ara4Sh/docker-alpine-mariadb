@@ -1,0 +1,149 @@
+#!/bin/bash
+set -e
+
+#Defining Variables
+DBNAME=${DBNAME:-}
+DBUSER=${DBNAME:-}
+DBPASS=${DBPASS:-}
+
+MYSQL_CHARSET=${MYSQL_CHARSET:-"utf8"}
+MYSQL_COLLATION=${MYSQL_COLLATION:-"utf8_general_ci"}
+
+DB_REMOTE_ROOT_NAME=${DB_REMOTE_ROOT_NAME:-}
+DB_REMOTE_ROOT_PASS=${DB_REMOTE_ROOT_PASS:-}
+DB_REMOTE_ROOT_HOST=${DB_REMOTE_ROOT_HOST:-"172.17.0.1"}
+
+_mysql_data_dir() {
+	mkdir -p ${MYSQL_DATA_DIR}
+	chmod -R 0700 ${MYSQL_DATA_DIR}
+	chown -R ${MYSQL_USER}:${MYSQL_USER} ${MYSQL_DATA_DIR}
+}
+
+_mysql_run_dir() {
+	mkdir -p ${MYSQL_RUN_DIR}
+	chmod -R 0755 ${MYSQL_RUN_DIR}
+	chown -R ${MYSQL_USER}:root ${MYSQL_RUN_DIR}
+}
+
+_mysql_log_dir() {
+	mkdir -p ${MYSQL_LOG_DIR}
+	chmod -R 0755 ${MYSQL_LOG_DIR}
+	chown -R ${MYSQL_USER}:${MYSQL_USER} ${MYSQL_LOG_DIR}
+}
+
+_mysql_conf_dir() {
+	if [[ -f /etc/mysql/my.cnf ]]; then
+		echo "!includedir /etc/mysql/conf.d/" >> /etc/mysql/my.cnf
+		mkdir -p /etc/mysql/conf.d
+	else
+		echo "MYSQL config file not exist in /etc/mysql/my.cnf"
+		exit
+	fi
+}
+
+_mysql_custon_config() {
+	#Add your custom configuration here with this format.
+	cat > /etc/mysql/conf.d/mysql-skip-name-resolv.cnf <<EOF
+[mysqld]
+skip_name_resolve
+EOF
+	cat > /etc/mysql/conf.d/mysql-listen.cnf <<EOF
+[mysqld]
+bind = 0.0.0.0
+EOF
+}
+
+_init_mysql_database() {
+	# Checking for mysql Data directory
+	if [[ ! -d ${MYSQL_DATA_DIR}/mysql ]]; then
+		echo "Installing mysql database..."
+		mysql_install_db --user=mysql > /dev/null 2>&1
+	#Ensure mysql is shutdown
+		/usr/bin/mysqladmin -u root shutdown
+	fi
+}
+
+_ensure_mysql_running() {
+	#Checking mysql is running (Thank you to Sameersbn)
+                timeout=15
+                while ! /usr/bin/mysqladmin -u root status > /dev/null 2>&1
+                do
+                        timeout=$(($timeout -1))
+                        if [[ $timeout -eq 0 ]]; then
+                                echo -e "\nCould not connect to database server. Aborting..."
+                                exit 1
+                        fi
+                        echo -n "."
+                        sleep 1
+                done
+}
+
+_create_remote_user() {
+	#Creating a remote user with root privileges
+	if [ -n "${DB_REMOTE_ROOT_NAME}" -a -n "${DB_REMOTE_ROOT_HOST}" ]; then
+		#Running mysql
+		/usr/bin/mysqld_safe >/dev/null 2>&1 &
+		_ensure_mysql_running
+		echo "Creating remote user  \"${DB_REMOTE_ROOT_NAME}\" with root privileges..."
+		mysql -u root -e "GRANT ALL PRIVILEGES ON *.* TO '${DB_REMOTE_ROOT_NAME}'@'${DB_REMOTE_ROOT_HOST}' IDENTIFIED BY '${DB_REMOTE_ROOT_PASS}' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+	# Ensure mysql is not running
+	/usr/bin/mysqladmin -u root shutdown
+	fi
+}
+
+_create_users_databases() {
+	#Creating new user and database;
+	if [ -n "${DBUSER}" -o -n "${DBNAME}" ]; then
+	/usr/bin/mysqld_safe >/dev/null 2>&1 &
+	_ensure_mysql_running
+		if [[ -n "${DBNAME}" ]]; then
+			for db in $(awk -F',' '{for (i = 1 ; i <= NF ; i++) print $i}' <<< "${DBNAME}"); do
+				echo "Creating database \"$db\"..."
+				mysql -u root -e "CREATE DATABASE IF NOT EXISTS \`$db\` DEFAULT CHARACTER SET \`$MYSQL_CHARSET\` COLLATE \`$MYSQL_COLLATION\`;"
+				if [[ -n "${DBUSER}" ]]; then
+						echo "Granting access to database \"$db\" for user \"${DBUSER}\"..."
+						mysql -u root -e "GRANT ALL PRIVILEGES ON \`$db\`.* TO '${DBUSER}' IDENTIFIED BY '${DBPASS}';"
+				fi
+			done
+	#Ensure mysql is not running
+	/usr/bin/mysqladmin -u root shutdown
+		fi
+	fi
+}
+
+_mysql_data_dir
+_mysql_run_dir
+_mysql_log_dir
+_mysql_conf_dir
+
+#Allow arguments to be passed to mysqld_safe
+if [[ ${1:0:1} = '-' ]]; then
+	EXTRA_ARGS="$@"
+  	set --
+elif [[ ${1} == mysqld_safe || ${1} == $(which mysqld_safe) ]]; then
+  	EXTRA_ARGS="${@:2}"
+  	set --
+fi
+
+# default behaviour is to launch mysqld_safe
+
+if [[ -z ${1} ]]; then
+	_mysql_custon_config  	
+  	_init_mysql_database
+  	_create_users_databases
+  	exec $(which mysqld_safe) $EXTRA_ARGS
+else
+  exec "$@"
+fi
+
+
+
+
+
+
+
+
+
+
+
+
