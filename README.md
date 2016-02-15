@@ -1,3 +1,4 @@
+[![Docker Repository on Quay.io](https://quay.io/repository/araax/mariadb/status "Docker Repository on Quay.io")](https://quay.io/repository/araax/mariadb)
 # MariaD on AlpineLinux
 
 Minimal Docker container running mariadb on alpinelinux ( ~ 188mb)
