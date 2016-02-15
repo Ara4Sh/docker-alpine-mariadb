@@ -4,6 +4,8 @@ Minimal Docker container running mariadb on alpinelinux ( ~ 188mb)
 
 #How to:
 ``` docker build -t araax/mariadb .```
+
+
 ``` docker run --name=mariadb10 -d 
 		--env='DBNAME=app_production' \
 		--env='DBUSER=appuser' --env='DBPASS=password' \
